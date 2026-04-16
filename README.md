@@ -31,3 +31,6 @@ O diferencial deste projeto não é apenas a junção das tabelas, mas a intelig
 1. Instale as dependências necessárias:
    ```bash
    pip install pandas openpyxl
+
+### ⚠️ Aviso de Privacidade (LGPD)
+Por motivos de segurança da informação e conformidade com a LGPD, este repositório contém **estritamente a lógica do script**, sem qualquer base de dados associada. O foco aqui é a demonstração da arquitetura de ETL e automação.
