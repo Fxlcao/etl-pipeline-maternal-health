@@ -5,7 +5,7 @@ from tkinter import filedialog, messagebox
 
 def ler_abas(caminho):
     print(f"Lendo arquivo de entrada: {caminho}")
-    # Mesmo gerando CSV, a entrada continua sendo o Excel com várias abas
+    # Carrega todas as planilhas do Excel para a memória em um dicionário de DataFrames
     xl = pd.ExcelFile(caminho)
     abas = {}
     for nome in xl.sheet_names:
@@ -13,6 +13,7 @@ def ler_abas(caminho):
     return abas
 
 def val(row, col, padrao=None):
+    # Função auxiliar para extração segura de valores, evitando falhas em colunas inexistentes ou vazias
     if row is None: return padrao
     try:
         v = row.get(col, padrao)
@@ -33,12 +34,12 @@ def montar_juncao(abas):
 
     registros = []
     
-    # Processa TODAS as linhas para garantir que partos múltiplos apareçam
+    # Itera sobre a base principal (EPDS), preservando duplicidades válidas (ex: partos múltiplos)
     for index, r_epds in epds.iterrows():
         nome = r_epds['Paciente.Nome Social']
         if pd.isna(nome): continue
 
-        # Localização dos dados nas outras abas
+        # Cruzamento de dados (Left Join manual) utilizando o Nome Social como chave de ligação
         r_enfe = enfe_full[enfe_full['Paciente.Nome Social'] == nome].iloc[0] if enfe_full is not None and not enfe_full[enfe_full['Paciente.Nome Social'] == nome].empty else None
         r_cad  = cad[cad['Nome Social'] == nome].iloc[0] if cad is not None and not cad[cad['Nome Social'] == nome].empty else None
         
@@ -48,7 +49,7 @@ def montar_juncao(abas):
         elif estrat2 is not None and not estrat2[estrat2['Paciente.Nome Social'] == nome].empty:
             r_estrat = estrat2[estrat2['Paciente.Nome Social'] == nome].iloc[-1]
 
-        # Mapeamento IDÊNTICO ao cabeçalho do CSV
+        # Mapeamento do esquema de dados consolidado
         registro = {
             'NAME': nome,
             'AGE': val(r_cad, 'Idade'),
@@ -181,57 +182,50 @@ def montar_juncao(abas):
         }
         registros.append(registro)
 
-    # Cria o DataFrame com todos os registros
     df = pd.DataFrame(registros)
 
-    ### --- INÍCIO DOS NOVOS TRATAMENTOS DE DADOS --- ###
-    
-    # 1. Tratar a coluna "Pontuacao Estratificacao" (pegar apenas o valor antes do ".")
+    # --- Transformações de Limpeza e Padronização de Dados ---
+
+    # Extrai a parte inteira da pontuação por meio de split na string
     if 'Pontuacao Estratificacao' in df.columns:
         df['Pontuacao Estratificacao'] = df['Pontuacao Estratificacao'].apply(
             lambda x: str(x).split('.')[0] if pd.notna(x) and str(x).strip() != '' else x
         )
 
-    # 2 e 3. Tratar colunas em branco dependendo do tipo de dado (Numérico vs Texto)
+    # Imputação condicional de valores nulos (Null Handling) baseada em inferência de tipo
     for col in df.columns:
-        # Tenta converter a coluna para numérico para validar de fato se é número
         col_temp = pd.to_numeric(df[col], errors='ignore')
         
         if pd.api.types.is_numeric_dtype(col_temp):
-            # Se for número, preenche vazios com a string "Null"
             df[col] = df[col].fillna("Null")
         else:
-            # Se for texto, substitui strings que contenham só espaços em branco por NaN primeiro...
+            # Normaliza strings vazias ou compostas apenas por espaços para o tipo nulo padrão do Pandas
             df[col] = df[col].replace(r'^\s*$', pd.NA, regex=True)
-            # ... e então preenche todos os vazios/nulos com "-"
             df[col] = df[col].fillna("-")
-            
-    ### --- FIM DOS NOVOS TRATAMENTOS DE DADOS --- ###
 
     return df
 
 def salvar_csv(df, caminho_saida):
     try:
-        # Exporta como CSV com separador ; e codificação para Windows/Excel
+        # Exportação do dataset em formato flat-file com codificação suportada nativamente por ferramentas de BI e Excel
         df.to_csv(caminho_saida, index=False, sep=';', encoding='utf-8-sig')
         messagebox.showinfo("Sucesso", f"Arquivo CSV gerado com sucesso!\nSalvo em: {caminho_saida}")
     except PermissionError:
-        messagebox.showerror("Erro", "O arquivo de destino está aberto. Feche-o e tente novamente.")
+        messagebox.showerror("Erro", "O arquivo de destino está bloqueado/aberto. Feche-o e tente novamente.")
 
 def selecionar_arquivos():
     root = tk.Tk()
     root.withdraw()
     
-    # Seleciona o Excel de entrada
-    c_entrada = filedialog.askopenfilename(title="Selecionar Excel Original", filetypes=[("Excel", "*.xlsx")])
+    # Interface de seleção interativa para ingestão e extração
+    c_entrada = filedialog.askopenfilename(title="Selecionar Origem de Dados (Excel)", filetypes=[("Excel", "*.xlsx")])
     if not c_entrada: return
     
-    # Seleciona onde salvar o CSV
     c_saida = filedialog.asksaveasfilename(
-        title="Salvar CSV Final", 
+        title="Definir Destino do Dataset (CSV)", 
         defaultextension=".csv", 
         filetypes=[("CSV", "*.csv")],
-        initialfile="Excel Dados AGAR(Junçao dados).csv"
+        initialfile="Dataset_Consolidado_AGAR.csv"
     )
     if not c_saida: return
 
@@ -241,7 +235,7 @@ def selecionar_arquivos():
         if not df_final.empty:
             salvar_csv(df_final, c_saida)
     except Exception as e:
-        messagebox.showerror("Erro Crítico", str(e))
+        messagebox.showerror("Erro de Execução", str(e))
     root.destroy()
 
 if __name__ == '__main__':
